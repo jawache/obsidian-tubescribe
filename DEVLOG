@@ -1,0 +1,55 @@
+# obsidian-tubescribe Development Log
+
+## 2026-02-06 - Initial Build: From Spec to Working Plugin
+
+**Objective**: Build the entire TubeScribe Obsidian plugin from scratch — from project scaffolding to a working sync engine that fetches YouTube playlist transcripts via yt-dlp.
+
+### What We Built
+- Complete Obsidian plugin with 7 TypeScript source modules
+- Full settings UI with 5 sections (Connection, Playlists, Vault, Schedule, Transcript)
+- yt-dlp integration: binary auto-detection, playlist metadata fetch, transcript download
+- VTT parser with YouTube auto-caption deduplication
+- Template engine with {{variable}} substitution and customisable filenames
+- Sync engine: playlist scanning, video deduplication via frontmatter, note creation
+- Group-by-playlist subfolder option
+- Test vault at `test/test-tubescribe/` for live testing
+
+### The Journey
+Started by planning the architecture across 7 phases, then built all modules in one pass. The plugin compiled cleanly on first build — zero errors.
+
+The real challenge was **VTT deduplication**. YouTube auto-generated captions use a rolling window pattern where each cue contains the previous cue's text repeated on line 1, with new content on line 2. Echo cues (~10ms duration) also appear as snapshots.
+
+**Attempt 1**: Exact-match deduplication — missed overlapping text entirely. Transcripts were full of duplicates.
+
+**Attempt 2**: Prefix-matching — better, but failed when the rolling window shifted (previous "A B", current "B C" — neither is a prefix of the other).
+
+**Attempt 3**: "Last line only" — eliminated duplicates perfectly for auto-generated captions, but was too aggressive: it dropped content from manual captions where all lines are genuinely new.
+
+**Attempt 4 (final)**: Compare each cue's first line against the previous cue's last line. If they match, it's a rolling repeat — drop line 1 and keep the rest. Otherwise, keep everything. This works correctly for both auto-generated and manual captions. Verified against real YouTube VTT files and synthetic manual caption test data.
+
+### Technical Achievements
+- Zero runtime npm dependencies — only Node built-ins and the Obsidian API
+- Two-pass metadata fetch: fast `--flat-playlist` for ID list, then `--dump-json` per new video only
+- VTT parser that handles YouTube's specific auto-caption quirks
+- Direct `execFile` (no shell) for security and performance
+- Clean build on first attempt across all 7 modules
+
+### Key Learnings
+- YouTube auto-generated VTT cues come in pairs: a content cue (long duration, 2 lines) and an echo cue (~10ms, snapshot). The echo cues are always redundant.
+- For rolling dedup, comparing line-by-line across cue boundaries is more robust than prefix-matching on joined text.
+- The `--flat-playlist` flag returns limited metadata (many fields null) — need a second pass with `--dump-json` per video for complete data.
+
+### Statistics
+- 7 TypeScript source modules
+- ~750 lines of TypeScript
+- 0 runtime dependencies
+- 3 iterations on VTT parser to get deduplication right
+- Clean build on first attempt
+
+### Next Steps
+- Test with more diverse playlists (different languages, manual vs auto captions)
+- Consider LLM transcript cleanup as a future feature
+- Obsidian community plugin submission
+
+### Reflections
+The VTT parser was the make-or-break piece. Understanding the actual structure of YouTube's auto-generated caption files — by downloading and inspecting real VTT data — was essential. The rolling window pattern isn't documented anywhere; you have to see the raw data to understand it.

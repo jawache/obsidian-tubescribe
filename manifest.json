@@ -1,0 +1,9 @@
+{
+	"id": "obsidian-tubescribe",
+	"name": "TubeScribe",
+	"version": "0.1.0",
+	"minAppVersion": "0.15.0",
+	"description": "Sync YouTube playlist transcripts into your vault. No API keys needed.",
+	"author": "jawache",
+	"isDesktopOnly": true
+}
