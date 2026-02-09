@@ -3,23 +3,21 @@ import { TemplateVariables } from './types';
 
 const DEFAULT_TEMPLATE = `---
 created: {{synced}}
-aliases:
-  - {{title}}
-references:
+{{aliases_block}}references:
   -
-description: YouTube transcript from {{channel}}
+description: {{yaml_description}}
 tags:
   - youtube
   - transcript
 source_type: youtube-transcript
-video_id: "{{video_id}}"
-channel: "{{channel}}"
-channel_url: "{{channel_url}}"
-url: "{{url}}"
+video_id: {{yaml_video_id}}
+channel: {{yaml_channel}}
+channel_url: {{yaml_channel_url}}
+url: {{yaml_url}}
 published: {{published}}
 synced: {{synced}}
-duration: "{{duration}}"
-playlist: "{{playlist}}"
+duration: {{yaml_duration}}
+playlist: {{yaml_playlist}}
 has_transcript: {{has_transcript}}
 ---
 
@@ -62,16 +60,105 @@ export async function loadTemplate(
 }
 
 /**
+ * Escape a string for safe use as a YAML value.
+ * Wraps in double quotes and escapes internal quotes and backslashes.
+ */
+export function yamlEscape(value: string): string {
+	if (!value) return '""';
+	const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+	return `"${escaped}"`;
+}
+
+/**
+ * Clean a title: strip quotes and pipes that cause YAML/filename problems.
+ */
+export function sanitizeTitle(title: string): string {
+	let clean = title.replace(/["'|]/g, '');
+	clean = clean.replace(/\s+/g, ' ').trim();
+	return clean;
+}
+
+/**
+ * Sanitise a video description for use in a single-line YAML field.
+ * Takes the first meaningful line, strips URLs.
+ */
+export function sanitizeDescription(
+	description: string,
+	channel: string
+): string {
+	if (!description) return `YouTube transcript from ${channel}`;
+
+	const lines = description.split(/\n/);
+	let firstLine = '';
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (
+			trimmed &&
+			!trimmed.startsWith('http') &&
+			!trimmed.startsWith('#') &&
+			trimmed.length > 5
+		) {
+			firstLine = trimmed;
+			break;
+		}
+	}
+
+	if (!firstLine) return `YouTube transcript from ${channel}`;
+
+	if (firstLine.length > 200) {
+		firstLine = firstLine.substring(0, 197) + '...';
+	}
+
+	return firstLine;
+}
+
+/**
+ * Build an extended set of render variables from the base TemplateVariables.
+ * Adds yaml-escaped versions and the conditional aliases block.
+ */
+export function buildRenderVariables(
+	vars: TemplateVariables
+): Record<string, string> {
+	const render: Record<string, string> = { ...vars };
+
+	// Clean title for display
+	render.title = sanitizeTitle(vars.title);
+
+	// YAML-safe versions of frontmatter values
+	render.yaml_video_id = yamlEscape(vars.video_id);
+	render.yaml_channel = yamlEscape(vars.channel);
+	render.yaml_channel_url = yamlEscape(vars.channel_url);
+	render.yaml_url = yamlEscape(vars.url);
+	render.yaml_duration = yamlEscape(vars.duration);
+	render.yaml_playlist = yamlEscape(vars.playlist);
+	render.yaml_description = yamlEscape(
+		sanitizeDescription(vars.description, vars.channel)
+	);
+
+	// Aliases block: include if the title has useful content
+	const cleanTitle = render.title;
+	if (cleanTitle && cleanTitle.length > 0) {
+		render.aliases_block = `aliases:\n  - ${yamlEscape(cleanTitle)}\n`;
+	} else {
+		render.aliases_block = '';
+	}
+
+	return render;
+}
+
+/**
  * Render a template by replacing all {{variable}} placeholders.
  */
 export function renderTemplate(
 	template: string,
-	variables: TemplateVariables
+	variables: Record<string, string>
 ): string {
 	let result = template;
-	for (const [key, value] of Object.entries(variables)) {
+	// Sort keys longest-first to avoid partial replacements
+	const keys = Object.keys(variables).sort((a, b) => b.length - a.length);
+	for (const key of keys) {
 		const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-		result = result.replace(regex, value);
+		result = result.replace(regex, variables[key]);
 	}
 	return result;
 }
@@ -81,15 +168,21 @@ export function renderTemplate(
  */
 export function generateFilename(
 	format: string,
-	variables: TemplateVariables
+	variables: Record<string, string>
 ): string {
 	let filename = renderTemplate(format, variables);
 
-	// Replace illegal filename characters with hyphens
-	filename = filename.replace(/[/\\:*?"<>|]/g, '-');
+	// Strip quotes and pipes (ugly as hyphens in filenames)
+	filename = filename.replace(/["'|]/g, '');
 
-	// Collapse multiple hyphens
+	// Replace remaining illegal filename characters with hyphens
+	filename = filename.replace(/[/\\:*?<>]/g, '-');
+
+	// Collapse multiple consecutive hyphens (but leave spaced hyphens alone)
 	filename = filename.replace(/-{2,}/g, '-');
+
+	// Collapse multiple spaces
+	filename = filename.replace(/\s{2,}/g, ' ');
 
 	// Trim hyphens and whitespace from ends
 	filename = filename.replace(/^[-\s]+|[-\s]+$/g, '');

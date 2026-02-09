@@ -2,7 +2,7 @@ import { App, Notice, TFile } from 'obsidian';
 import { TubescribeSettings, SyncResult, TemplateVariables, VideoMetadata } from './types';
 import { resolveYtdlpPath, fetchPlaylistMetadata, fetchVideoMetadata, downloadTranscript } from './ytdlp';
 import { parseVTT, formatTranscript, formatTranscriptRaw } from './vtt-parser';
-import { loadTemplate, renderTemplate, generateFilename, formatDuration, formatDate } from './template';
+import { loadTemplate, renderTemplate, generateFilename, buildRenderVariables, formatDuration, formatDate } from './template';
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -182,13 +182,16 @@ export class SyncEngine {
 						transcript_raw: transcriptRaw,
 					};
 
+					// Build render variables with YAML-safe versions
+					const renderVars = buildRenderVariables(vars);
+
 					// Render note content
-					const noteContent = renderTemplate(template, vars);
+					const noteContent = renderTemplate(template, renderVars);
 
 					// Generate filename and handle collisions
 					const filename = generateFilename(
 						this.settings.filenameFormat,
-						vars
+						renderVars
 					);
 					const filePath = await this.resolveFilePath(playlistFolder, filename);
 
